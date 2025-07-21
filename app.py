@@ -9,7 +9,7 @@ URL = os.environ.get('URL')
 
 TOKEN = bot_token
 bot = telegram.Bot(token=TOKEN)
-print("URL",URL)
+print("URL", URL)
 
 app = Flask(__name__)
 
@@ -19,17 +19,22 @@ def respond():
     update_json = request.get_json(force=True)
     print("Update JSON:", update_json)
     update = telegram.Update.de_json(update_json, bot)
-    
+
     if not update.message:
         print("No message found in update")
-        return 'ok'
-    
+        return 'ok', 200
+
     chat_id = update.message.chat.id
     msg_id = update.message.message_id
     text = update.message.text.encode('utf-8').decode() if update.message.text else ""
     print(f"Message text: {text}")
-    
-    # your existing logic ...
+
+    # Example logic: Echo the received text back to the user
+    if text:
+        bot.send_message(chat_id=chat_id, text=f"You said: {text}")
+
+    # *** IMPORTANT: Return a valid HTTP response ***
+    return 'ok', 200
 
 
 @app.route('/set_webhook', methods=['GET', 'POST'])
