@@ -37,9 +37,9 @@ def respond():
 
 @app.route('/set_webhook', methods=['GET', 'POST'])
 def set_webhook():
-    # Use asyncio.run to run the async setWebhook method synchronously
-    s = asyncio.run(bot.setWebhook(f"{URL}/{TOKEN}"))
-    if s:
+    # Use asyncio to run the async method in a sync context
+    success = asyncio.run(bot.setWebhook(f"{URL}/{TOKEN}"))
+    if success:
         return "webhook setup ok"
     else:
         return "webhook setup failed"
@@ -49,6 +49,4 @@ def index():
     return 'Bot is running!'
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, threaded=True)
+    app.run(threaded=True)
