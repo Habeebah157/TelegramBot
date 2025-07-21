@@ -10,7 +10,7 @@ bot_token = os.environ.get('BOT_TOKEN')
 URL = os.environ.get('URL')
 
 # Configure custom HTTPXRequest to increase pool size and timeout
-request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5, max_connections=50)
+request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
 bot = telegram.Bot(token=bot_token, request=request_config)
 
 print("BOT_TOKEN:", bot_token)
