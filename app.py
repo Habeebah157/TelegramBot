@@ -15,25 +15,22 @@ app = Flask(__name__)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def respond():
-    update = telegram.Update.de_json(request.get_json(force=True), bot)
+    print("Received POST request at webhook")
+    update_json = request.get_json(force=True)
+    print("Update JSON:", update_json)
+    update = telegram.Update.de_json(update_json, bot)
+    
+    if not update.message:
+        print("No message found in update")
+        return 'ok'
+    
     chat_id = update.message.chat.id
     msg_id = update.message.message_id
-    text = update.message.text.encode('utf-8').decode()
-    print("got text message:", text)
+    text = update.message.text.encode('utf-8').decode() if update.message.text else ""
+    print(f"Message text: {text}")
+    
+    # your existing logic ...
 
-    if text == "/start":
-        bot_welcome = """
-        Welcome to coolAvatar bot, the bot is using the service from http://avatars.adorable.io/ to generate cool looking avatars based on the name you enter so please enter a name and the bot will reply with an avatar for your name.
-        """
-        bot.sendMessage(chat_id=chat_id, text=bot_welcome, reply_to_message_id=msg_id)
-    else:
-        try:
-            text = re.sub(r"\W", "_", text)
-            url = f"https://api.adorable.io/avatars/285/{text.strip()}.png"
-            bot.sendPhoto(chat_id=chat_id, photo=url, reply_to_message_id=msg_id)
-        except Exception:
-            bot.sendMessage(chat_id=chat_id, text="There was a problem with the name you used, please enter a different name.", reply_to_message_id=msg_id)
-    return 'ok'
 
 @app.route('/set_webhook', methods=['GET', 'POST'])
 def set_webhook():
