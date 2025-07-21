@@ -9,6 +9,7 @@ URL = os.environ.get('URL')
 
 TOKEN = bot_token
 bot = telegram.Bot(token=TOKEN)
+print("URL",URL)
 
 app = Flask(__name__)
 
