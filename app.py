@@ -29,11 +29,11 @@ def respond():
     text = update.message.text.encode('utf-8').decode() if update.message.text else ""
     print(f"Message text: {text}")
 
-    # Example logic: Echo the received text back to the user
-    if text:
+    if text == '/start':
+        bot.send_message(chat_id=chat_id, text="Welcome! How can I help you?")
+    else:
         bot.send_message(chat_id=chat_id, text=f"You said: {text}")
 
-    # *** IMPORTANT: Return a valid HTTP response ***
     return 'ok', 200
 
 
