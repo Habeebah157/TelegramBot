@@ -2,6 +2,7 @@ import re
 from flask import Flask, request
 import telegram
 import os
+import asyncio
 
 # Get bot token and app URL from environment variables
 bot_token = os.environ.get('BOT_TOKEN')
@@ -36,7 +37,8 @@ def respond():
 
 @app.route('/set_webhook', methods=['GET', 'POST'])
 def set_webhook():
-    s = bot.setWebhook(f"{URL}/{TOKEN}")
+    # Use asyncio.run to run the async setWebhook method synchronously
+    s = asyncio.run(bot.setWebhook(f"{URL}/{TOKEN}"))
     if s:
         return "webhook setup ok"
     else:
