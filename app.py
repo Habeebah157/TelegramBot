@@ -14,7 +14,7 @@ print("URL", URL)
 app = Flask(__name__)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
-def respond():
+async def respond():
     print("Received POST request at webhook")
     update_json = request.get_json(force=True)
     print("Update JSON:", update_json)
