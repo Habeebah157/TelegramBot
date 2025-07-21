@@ -21,6 +21,7 @@ loop = asyncio.get_event_loop()
 
 @app.route(f'/{bot_token}', methods=['POST'])
 def respond():
+    print("Received a request")  # <-- ADDED DEBUG PRINT
     update_json = request.get_json(force=True)
     update = telegram.Update.de_json(update_json, bot)
 
@@ -29,6 +30,8 @@ def respond():
 
     chat_id = update.message.chat.id
     text = update.message.text or ""
+
+    print(f"Received message: {text} from chat_id: {chat_id}")  # <-- ADDED DEBUG PRINT
 
     async def handle_message():
         if text == '/start':
