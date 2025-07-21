@@ -2,7 +2,7 @@ import re
 from flask import Flask, request
 import telegram
 import os
-
+import asyncio
 # Get bot token and app URL from environment variables
 bot_token = os.environ.get('BOT_TOKEN')
 URL = os.environ.get('URL')
@@ -14,28 +14,22 @@ print("URL", URL)
 app = Flask(__name__)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
-async def respond():
-    print("Received POST request at webhook")
+def respond():
     update_json = request.get_json(force=True)
-    print("Update JSON:", update_json)
     update = telegram.Update.de_json(update_json, bot)
 
     if not update.message:
-        print("No message found in update")
         return 'ok', 200
 
     chat_id = update.message.chat.id
-    msg_id = update.message.message_id
-    text = update.message.text.encode('utf-8').decode() if update.message.text else ""
-    print(f"Message text: {text}")
+    text = update.message.text or ""
 
     if text == '/start':
-        bot.send_message(chat_id=chat_id, text="Welcome! How can I help you?")
+        asyncio.run(bot.send_message(chat_id=chat_id, text="Welcome! How can I help you?"))
     else:
-        bot.send_message(chat_id=chat_id, text=f"You said: {text}")
+        asyncio.run(bot.send_message(chat_id=chat_id, text=f"You said: {text}"))
 
     return 'ok', 200
-
 
 @app.route('/set_webhook', methods=['GET', 'POST'])
 def set_webhook():
