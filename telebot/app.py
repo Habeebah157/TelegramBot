@@ -9,9 +9,11 @@ from urllib.parse import urljoin
 
 # Load environment variables
 bot_token = os.environ["BOT_TOKEN"]
-URL = os.environ["URL"]  # e.g., "https://yourdomain.com"
+URL = os.environ["URL"]  
 redis_url = os.environ["REDIS_URL"]
-webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")  # Optional secret path
+webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret") 
+print("Loaded BOT_TOKEN:", bot_token)
+
 
 # Set up Redis queue
 redis_conn = redis.from_url(redis_url)
