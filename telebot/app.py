@@ -1,6 +1,4 @@
 import os
-import sys
-import threading
 import asyncio
 from flask import Flask, request
 import telegram
@@ -8,37 +6,33 @@ from telegram.request import HTTPXRequest
 import redis
 from rq import Queue
 
-# Add credentials path and import your tokens here
-sys.path.append(os.path.join(os.path.dirname(__file__), 'telegram-bot', 'credentials'))
-# from credentials import BOT_TOKEN, URL,REDIS_URL  # Adjust this import path as needed
-
+# Load environment variables
 bot_token = os.environ["BOT_TOKEN"]
-URL = os.environ["URL"] # fallback if URL is None
-
-print("Using BOT_TOKEN:", bot_token)
-print("Using URL:", URL)
-
-# Redis setup
+URL = os.environ["URL"]
 redis_url = os.environ["REDIS_URL"]
+
+# Set up Redis queue
 redis_conn = redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
-# Telegram bot with HTTPXRequest
+# Configure Telegram Bot with HTTPX
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
 bot = telegram.Bot(token=bot_token, request=request_config)
 
+# Flask app
 app = Flask(__name__)
 
-# Async function to send message
+# Async function to send messages
 async def send_message_async(token, chat_id, text):
     request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
     bot = telegram.Bot(token=token, request=request_config)
     await bot.send_message(chat_id=chat_id, text=text)
 
-# Sync wrapper for RQ queue
+# Sync wrapper for RQ
 def enqueue_send_message(token, chat_id, text):
     asyncio.run(send_message_async(token, chat_id, text))
 
+# Webhook route
 @app.route(f'/{bot_token}', methods=['POST'])
 def respond():
     try:
@@ -63,22 +57,19 @@ def respond():
         print("Error in respond():", e)
         return 'ok', 200
 
-# Synchronous webhook setup (run once manually)
-def set_webhook():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(bot.set_webhook(f"{URL}/{bot_token}"))
-    loop.close()
-    return result
-
+# Manual webhook setup route
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook_route():
     try:
-        result = set_webhook()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(bot.set_webhook(f"{URL}/{bot_token}"))
+        loop.close()
         return f"Webhook set: {result}"
     except Exception as e:
         return f"Error setting webhook: {e}"
 
+# Health check
 @app.route('/')
 def index():
     return 'Bot is running!'
