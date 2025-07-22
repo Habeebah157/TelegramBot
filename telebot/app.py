@@ -10,7 +10,7 @@ from rq import Queue
 
 # Add credentials path and import your tokens here
 sys.path.append(os.path.join(os.path.dirname(__file__), 'telegram-bot', 'credentials'))
-from credentials import BOT_TOKEN, URL,REDIS_URL  # Adjust this import path as needed
+# from credentials import BOT_TOKEN, URL,REDIS_URL  # Adjust this import path as needed
 
 bot_token = os.environ["BOT_TOKEN"]
 URL = os.environ["URL"] # fallback if URL is None
