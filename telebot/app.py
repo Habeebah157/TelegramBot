@@ -5,11 +5,13 @@ import telegram
 from telegram.request import HTTPXRequest
 import redis
 from rq import Queue
+from urllib.parse import urljoin
 
 # Load environment variables
 bot_token = os.environ["BOT_TOKEN"]
-URL = os.environ["URL"]
+URL = os.environ["URL"]  # e.g., "https://yourdomain.com"
 redis_url = os.environ["REDIS_URL"]
+webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")  # Optional secret path
 
 # Set up Redis queue
 redis_conn = redis.from_url(redis_url)
@@ -32,8 +34,8 @@ async def send_message_async(token, chat_id, text):
 def enqueue_send_message(token, chat_id, text):
     asyncio.run(send_message_async(token, chat_id, text))
 
-# Webhook route
-@app.route(f'/{bot_token}', methods=['POST'])
+# Webhook route — uses secret path instead of bot token for better security
+@app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
     try:
         update_json = request.get_json(force=True)
@@ -61,10 +63,14 @@ def respond():
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook_route():
     try:
+        webhook_url = urljoin(URL.rstrip('/') + '/', webhook_secret)
+        print(f"Setting webhook to: {webhook_url}")
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(bot.set_webhook(f"{URL}/{bot_token}"))
+        result = loop.run_until_complete(bot.set_webhook(webhook_url))
         loop.close()
+
         return f"Webhook set: {result}"
     except Exception as e:
         return f"Error setting webhook: {e}"
