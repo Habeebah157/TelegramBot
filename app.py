@@ -4,11 +4,21 @@ import telegram
 import os
 import asyncio
 from telegram.request import HTTPXRequest
-import threading  # <--- added for event loop in thread
+import threading
+import redis
+from rq import Queue
+
+# TEMPORARY: Set Redis URL if not found in environment
+os.environ.setdefault('REDIS_URL', 'redis://localhost:6379')
+
+redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+redis_conn = redis.from_url(redis_url)
+queue = Queue(connection=redis_conn)
 
 # Get bot token and app URL from environment variables
 bot_token = os.environ.get('BOT_TOKEN')
 URL = os.environ.get('URL')
+print("Environment Variables:", URL)
 
 # TEMPORARY: set URL if not found in environment
 if URL is None:
@@ -20,9 +30,10 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 print("BOT_TOKEN:", bot_token)
 print("URL:", URL)
+
 app = Flask(__name__)
 
-# Create and start a dedicated event loop in a separate thread
+# Create and start a dedicated event loop in a separate thread (not used now but kept if needed)
 def start_loop(loop):
     asyncio.set_event_loop(loop)
     loop.run_forever()
@@ -30,6 +41,17 @@ def start_loop(loop):
 loop = asyncio.new_event_loop()
 t = threading.Thread(target=start_loop, args=(loop,), daemon=True)
 t.start()
+
+# Async function that sends message to Telegram
+async def send_message_async(token, chat_id, text):
+    request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
+    bot = telegram.Bot(token=token, request=request_config)
+    await bot.send_message(chat_id=chat_id, text=text)
+
+# Sync wrapper to enqueue (will be called by RQ worker)
+def enqueue_send_message(token, chat_id, text):
+    import asyncio
+    asyncio.run(send_message_async(token, chat_id, text))
 
 @app.route(f'/{bot_token}', methods=['POST'])
 def respond():
@@ -47,16 +69,13 @@ def respond():
         text = update.message.text or ""
         print(f"Received message: {text} from chat_id: {chat_id}")
 
-        async def handle_message():
-            if text == '/start':
-                await bot.send_message(chat_id=chat_id, text="Welcome! How can I help you?")
-            elif text == '/word':
-                await bot.send_message(chat_id=chat_id, text="Please send me a word to define.")
-            else:
-                await bot.send_message(chat_id=chat_id, text=f"You said: {text}")
-
-        # Schedule coroutine safely on running event loop without closing it
-        asyncio.run_coroutine_threadsafe(handle_message(), loop)
+        # Enqueue message sending task instead of running directly
+        if text == '/start':
+            queue.enqueue(enqueue_send_message, bot_token, chat_id, "Welcome! How can I help you?")
+        elif text == '/word':
+            queue.enqueue(enqueue_send_message, bot_token, chat_id, "Please send me a word to define.")
+        else:
+            queue.enqueue(enqueue_send_message, bot_token, chat_id, f"You said: {text}")
 
         return 'ok', 200
 
