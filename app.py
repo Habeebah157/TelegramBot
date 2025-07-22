@@ -9,6 +9,10 @@ from telegram.request import HTTPXRequest
 bot_token = os.environ.get('BOT_TOKEN')
 URL = os.environ.get('URL')
 
+# TEMPORARY: set URL if not found in environment
+if URL is None:
+    URL = "https://telegrambot-mfif.onrender.com"  # <-- add your bot URL here
+
 # Configure custom HTTPXRequest to increase pool size and timeout
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
 bot = telegram.Bot(token=bot_token, request=request_config)
