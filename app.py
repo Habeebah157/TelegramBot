@@ -4,6 +4,7 @@ import telegram
 import os
 import asyncio
 from telegram.request import HTTPXRequest
+import threading  # <--- added for event loop in thread
 
 # Get bot token and app URL from environment variables
 bot_token = os.environ.get('BOT_TOKEN')
@@ -21,7 +22,14 @@ print("BOT_TOKEN:", bot_token)
 print("URL:", URL)
 app = Flask(__name__)
 
-loop = asyncio.get_event_loop()
+# Create and start a dedicated event loop in a separate thread
+def start_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+loop = asyncio.new_event_loop()
+t = threading.Thread(target=start_loop, args=(loop,), daemon=True)
+t.start()
 
 @app.route(f'/{bot_token}', methods=['POST'])
 def respond():
@@ -47,8 +55,8 @@ def respond():
             else:
                 await bot.send_message(chat_id=chat_id, text=f"You said: {text}")
 
-        # Run the async function synchronously, starting a fresh event loop
-        asyncio.run(handle_message())
+        # Schedule coroutine safely on running event loop without closing it
+        asyncio.run_coroutine_threadsafe(handle_message(), loop)
 
         return 'ok', 200
 
