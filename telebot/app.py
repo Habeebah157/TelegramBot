@@ -10,7 +10,7 @@ from rq import Queue
 
 # Add credentials path and import your tokens here
 sys.path.append(os.path.join(os.path.dirname(__file__), 'telegram-bot', 'credentials'))
-from credentials import BOT_TOKEN, URL  # Adjust this import path as needed
+from credentials import BOT_TOKEN, URL,REDIS_URL  # Adjust this import path as needed
 
 bot_token = BOT_TOKEN
 URL = URL or "https://telegrambot-mfif.onrender.com"  # fallback if URL is None
@@ -19,7 +19,7 @@ print("Using BOT_TOKEN:", bot_token)
 print("Using URL:", URL)
 
 # Redis setup
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+redis_url = REDIS_URL or os.getenv('REDIS_URL', 'redis://localhost:6379')
 redis_conn = redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
