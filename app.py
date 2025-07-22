@@ -21,29 +21,35 @@ loop = asyncio.get_event_loop()
 
 @app.route(f'/{bot_token}', methods=['POST'])
 def respond():
-    print("Received a request")  # <-- ADDED DEBUG PRINT
-    update_json = request.get_json(force=True)
-    update = telegram.Update.de_json(update_json, bot)
+    try:
+        update_json = request.get_json(force=True)
+        print("Update JSON:", update_json)
 
-    if not update.message:
+        update = telegram.Update.de_json(update_json, bot)
+
+        if not update.message:
+            print("No message in update.")
+            return 'ok', 200
+
+        chat_id = update.message.chat.id
+        text = update.message.text or ""
+        print(f"Received message: {text} from chat_id: {chat_id}")
+
+        async def handle_message():
+            if text == '/start':
+                await bot.send_message(chat_id=chat_id, text="Welcome! How can I help you?")
+            elif text == '/word':
+                await bot.send_message(chat_id=chat_id, text="Please send me a word to define.")
+            else:
+                await bot.send_message(chat_id=chat_id, text=f"You said: {text}")
+
+        asyncio.run(handle_message())
         return 'ok', 200
 
-    chat_id = update.message.chat.id
-    text = update.message.text or ""
-
-    print(f"Received message: {text} from chat_id: {chat_id}")  # <-- ADDED DEBUG PRINT
-
-    async def handle_message():
-        if text == '/start':
-            await bot.send_message(chat_id=chat_id, text="Welcome! How can I help you?")
-        elif text == '/word':
-            await bot.send_message(chat_id=chat_id, text="Please send me a word to define.")
-        else:
-            await bot.send_message(chat_id=chat_id, text=f"You said: {text}")
-
-    asyncio.run_coroutine_threadsafe(handle_message(), loop)
-    return 'ok', 200
-
+    except Exception as e:
+        print("Error in respond():", e)
+        return 'ok', 200
+    
 @app.route('/set_webhook', methods=['GET', 'POST'])
 def set_webhook():
     s = bot.setWebhook(f"{URL}/{bot_token}")
