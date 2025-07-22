@@ -43,13 +43,15 @@ def respond():
             else:
                 await bot.send_message(chat_id=chat_id, text=f"You said: {text}")
 
+        # Run the async function synchronously, starting a fresh event loop
         asyncio.run(handle_message())
+
         return 'ok', 200
 
     except Exception as e:
         print("Error in respond():", e)
         return 'ok', 200
-    
+
 @app.route('/set_webhook', methods=['GET', 'POST'])
 def set_webhook():
     s = bot.setWebhook(f"{URL}/{bot_token}")
