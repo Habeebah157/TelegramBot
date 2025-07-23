@@ -4,8 +4,10 @@ from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
 from urllib.parse import urljoin
+from dotenv import load_dotenv
 
 # Load environment variables
+load_dotenv()
 bot_token = os.environ["BOT_TOKEN"]
 URL = os.environ["URL"]
 webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")
@@ -22,12 +24,13 @@ app = Flask(__name__)
 # Async function to send messages
 async def send_message_async(chat_id, text):
     try:
-        print(f"[Async ✅] Sending to {chat_id}: {text}")
+        print(f"[Worker] Sending message to {chat_id}: {text}")
         await bot.send_message(chat_id=chat_id, text=text)
+        print(f"[Worker ✅] Message sent to {chat_id}")
     except Exception as e:
-        print(f"[Async ❌] Failed to send to {chat_id}: {e}")
+        print(f"[Worker ❌] Failed to send message to {chat_id}: {e}")
 
-# Webhook handler
+# Webhook route
 @app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
     try:
@@ -42,23 +45,21 @@ def respond():
         text = update.message.text or ""
         print(f"[Webhook] Received message from {chat_id}: {text}")
 
-        # Prepare response text
+        # Handle different commands
         if text == '/start':
-            response_text = "Welcome! How can I help you?"
+            asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
         elif text == '/word':
-            response_text = "Please send me a word to define."
+            asyncio.run(send_message_async(chat_id, "Please send me a word to define."))
         else:
-            response_text = f"You said: {text}"
-
-        # Run send message asynchronously
-        asyncio.create_task(send_message_async(chat_id, response_text))
+            asyncio.run(send_message_async(chat_id, f"You said: {text}"))
 
         return 'ok', 200
+
     except Exception as e:
         print("❌ Error in respond():", e)
         return 'ok', 200
 
-# Route to set webhook manually
+# Manual webhook setup route
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook_route():
     try:
@@ -79,6 +80,5 @@ def set_webhook_route():
 def index():
     return 'Bot is running!'
 
-# Run the Flask app
 if __name__ == '__main__':
     app.run(threaded=True)
