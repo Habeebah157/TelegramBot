@@ -1,5 +1,6 @@
 import os
 import asyncio
+import threading
 from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
@@ -20,6 +21,14 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 # Flask app
 app = Flask(__name__)
+
+# 🔄 Create and run a dedicated background event loop
+event_loop = asyncio.new_event_loop()
+def start_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+threading.Thread(target=start_loop, args=(event_loop,), daemon=True).start()
 
 # Async function to send messages
 async def send_message_async(chat_id, text):
@@ -45,13 +54,13 @@ def respond():
         text = update.message.text or ""
         print(f"[Webhook] Received message from {chat_id}: {text}")
 
-        # Handle different commands
+        # Schedule async message
         if text == '/start':
-            asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
+            asyncio.run_coroutine_threadsafe(send_message_async(chat_id, "Welcome! How can I help you?"), event_loop)
         elif text == '/word':
-            asyncio.run(send_message_async(chat_id, "Please send me a word to define."))
+            asyncio.run_coroutine_threadsafe(send_message_async(chat_id, "Please send me a word to define."), event_loop)
         else:
-            asyncio.run(send_message_async(chat_id, f"You said: {text}"))
+            asyncio.run_coroutine_threadsafe(send_message_async(chat_id, f"You said: {text}"), event_loop)
 
         return 'ok', 200
 
