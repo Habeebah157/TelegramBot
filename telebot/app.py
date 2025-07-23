@@ -1,13 +1,15 @@
 import os
 import asyncio
-import nest_asyncio  # 👈 NEW
+import random
+import requests
 from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
 from urllib.parse import urljoin
 from dotenv import load_dotenv
+import nest_asyncio
 
-# Patch asyncio to allow nested loops
+# Patch asyncio for nested loop support
 nest_asyncio.apply()
 
 # Load environment variables
@@ -24,6 +26,27 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 # Flask app
 app = Flask(__name__)
+
+# List of words to pick randomly (you can expand this or get from API)
+WORDS_LIST = ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
+
+# Function to fetch definition from Free Dictionary API
+def get_definition(word):
+    try:
+        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        # Parse meaning from response
+        if isinstance(data, list) and len(data) > 0:
+            meanings = data[0].get("meanings", [])
+            if meanings:
+                definitions = meanings[0].get("definitions", [])
+                if definitions:
+                    return definitions[0].get("definition", "No definition found.")
+        return "Sorry, no definition found."
+    except Exception as e:
+        print(f"Error fetching definition: {e}")
+        return "Error fetching definition."
 
 # Async function to send messages
 async def send_message_async(chat_id, text):
@@ -49,11 +72,14 @@ def respond():
         text = update.message.text or ""
         print(f"[Webhook] Received message from {chat_id}: {text}")
 
-        # Use patched loop with asyncio.run
         if text == '/start':
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
         elif text == '/word':
-            asyncio.run(send_message_async(chat_id, "Please send me a word to define."))
+            # Pick a random word and get definition
+            random_word = random.choice(WORDS_LIST)
+            definition = get_definition(random_word)
+            reply = f"**{random_word.capitalize()}**:\n{definition}"
+            asyncio.run(send_message_async(chat_id, reply))
         else:
             asyncio.run(send_message_async(chat_id, f"You said: {text}"))
 
@@ -70,7 +96,11 @@ def set_webhook_route():
         webhook_url = urljoin(URL.rstrip('/') + '/', webhook_secret)
         print(f"Setting webhook to: {webhook_url}")
 
-        result = asyncio.run(bot.set_webhook(webhook_url))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(bot.set_webhook(webhook_url))
+        loop.close()
+
         return f"Webhook set: {result}"
     except Exception as e:
         return f"Error setting webhook: {e}"
