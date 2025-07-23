@@ -27,8 +27,33 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 # Flask app
 app = Flask(__name__)
 
-# List of words to pick randomly (you can expand this or get from API)
-WORDS_LIST = ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
+# Function to fetch medium difficulty words from Datamuse API
+def get_medium_words():
+    try:
+        # Example: 5 to 7 letter words (adjust sp param for length)
+        response = requests.get('https://api.datamuse.com/words?sp=??????&md=f&max=100', timeout=5)
+        words = response.json()
+
+        def get_freq(word_obj):
+            if 'tags' in word_obj:
+                for tag in word_obj['tags']:
+                    if tag.startswith('f:'):
+                        try:
+                            return float(tag[2:])
+                        except ValueError:
+                            return 0
+            return 0
+
+        # Filter words with medium frequency (adjust thresholds as needed)
+        medium_words = [w['word'] for w in words if 100 < get_freq(w) < 10000]
+
+        if not medium_words:
+            # fallback to a static list if API returns empty
+            return ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
+        return medium_words
+    except Exception as e:
+        print(f"Error fetching medium words: {e}")
+        return ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
 
 # Function to fetch definition from Free Dictionary API
 def get_definition(word):
@@ -36,7 +61,6 @@ def get_definition(word):
         url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
         response = requests.get(url, timeout=5)
         data = response.json()
-        # Parse meaning from response
         if isinstance(data, list) and len(data) > 0:
             meanings = data[0].get("meanings", [])
             if meanings:
@@ -52,7 +76,7 @@ def get_definition(word):
 async def send_message_async(chat_id, text):
     try:
         print(f"[Worker] Sending message to {chat_id}: {text}")
-        await bot.send_message(chat_id=chat_id, text=text)
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.constants.ParseMode.MARKDOWN)
         print(f"[Worker ✅] Message sent to {chat_id}")
     except Exception as e:
         print(f"[Worker ❌] Failed to send message to {chat_id}: {e}")
@@ -75,8 +99,9 @@ def respond():
         if text == '/start':
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
         elif text == '/word':
-            # Pick a random word and get definition
-            random_word = random.choice(WORDS_LIST)
+            # Get dynamic medium words list
+            words_list = get_medium_words()
+            random_word = random.choice(words_list)
             definition = get_definition(random_word)
             reply = f"**{random_word.capitalize()}**:\n{definition}"
             asyncio.run(send_message_async(chat_id, reply))
