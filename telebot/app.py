@@ -14,7 +14,6 @@ redis_url = os.environ["REDIS_URL"]
 webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret") 
 print("Loaded BOT_TOKEN:", bot_token)
 
-
 # Set up Redis queue
 redis_conn = redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
@@ -28,12 +27,18 @@ app = Flask(__name__)
 
 # Async function to send messages
 async def send_message_async(token, chat_id, text):
-    request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
-    bot = telegram.Bot(token=token, request=request_config)
-    await bot.send_message(chat_id=chat_id, text=text)
+    try:
+        print(f"[Worker] Preparing to send message to chat_id={chat_id}: {text}")
+        request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
+        bot = telegram.Bot(token=token, request=request_config)
+        await bot.send_message(chat_id=chat_id, text=text)
+        print(f"[Worker ✅] Message sent to {chat_id}")
+    except Exception as e:
+        print(f"[Worker ❌] Failed to send message to {chat_id}: {e}")
 
 # Sync wrapper for RQ
 def enqueue_send_message(token, chat_id, text):
+    print(f"[Enqueue] Task: send '{text}' to chat_id={chat_id}")
     asyncio.run(send_message_async(token, chat_id, text))
 
 # Webhook route — uses secret path instead of bot token for better security
@@ -44,10 +49,12 @@ def respond():
         update = telegram.Update.de_json(update_json, bot)
 
         if not update.message:
+            print("[Webhook] No message in update.")
             return 'ok', 200
 
         chat_id = update.message.chat.id
         text = update.message.text or ""
+        print(f"[Webhook] Received message from {chat_id}: {text}")
 
         if text == '/start':
             queue.enqueue(enqueue_send_message, bot_token, chat_id, "Welcome! How can I help you?")
