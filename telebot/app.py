@@ -1,11 +1,14 @@
 import os
 import asyncio
-import threading
+import nest_asyncio  # 👈 NEW
 from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
 from urllib.parse import urljoin
 from dotenv import load_dotenv
+
+# Patch asyncio to allow nested loops
+nest_asyncio.apply()
 
 # Load environment variables
 load_dotenv()
@@ -21,14 +24,6 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 # Flask app
 app = Flask(__name__)
-
-# 🔄 Create and run a dedicated background event loop
-event_loop = asyncio.new_event_loop()
-def start_loop(loop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
-
-threading.Thread(target=start_loop, args=(event_loop,), daemon=True).start()
 
 # Async function to send messages
 async def send_message_async(chat_id, text):
@@ -54,13 +49,13 @@ def respond():
         text = update.message.text or ""
         print(f"[Webhook] Received message from {chat_id}: {text}")
 
-        # Schedule async message
+        # Use patched loop with asyncio.run
         if text == '/start':
-            asyncio.run_coroutine_threadsafe(send_message_async(chat_id, "Welcome! How can I help you?"), event_loop)
+            asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
         elif text == '/word':
-            asyncio.run_coroutine_threadsafe(send_message_async(chat_id, "Please send me a word to define."), event_loop)
+            asyncio.run(send_message_async(chat_id, "Please send me a word to define."))
         else:
-            asyncio.run_coroutine_threadsafe(send_message_async(chat_id, f"You said: {text}"), event_loop)
+            asyncio.run(send_message_async(chat_id, f"You said: {text}"))
 
         return 'ok', 200
 
@@ -75,11 +70,7 @@ def set_webhook_route():
         webhook_url = urljoin(URL.rstrip('/') + '/', webhook_secret)
         print(f"Setting webhook to: {webhook_url}")
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(bot.set_webhook(webhook_url))
-        loop.close()
-
+        result = asyncio.run(bot.set_webhook(webhook_url))
         return f"Webhook set: {result}"
     except Exception as e:
         return f"Error setting webhook: {e}"
