@@ -3,20 +3,14 @@ import asyncio
 from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
-import redis
-from rq import Queue
 from urllib.parse import urljoin
 
 # Load environment variables
 bot_token = os.environ["BOT_TOKEN"]
-URL = os.environ["URL"]  
-redis_url = os.environ["REDIS_URL"]
-webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret") 
-print("Loaded BOT_TOKEN:", bot_token)
+URL = os.environ["URL"]
+webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")
 
-# Set up Redis queue
-redis_conn = redis.from_url(redis_url)
-queue = Queue(connection=redis_conn)
+print("Loaded BOT_TOKEN:", bot_token)
 
 # Configure Telegram Bot with HTTPX
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
@@ -26,22 +20,14 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 app = Flask(__name__)
 
 # Async function to send messages
-async def send_message_async(token, chat_id, text):
+async def send_message_async(chat_id, text):
     try:
-        print(f"[Worker] Preparing to send message to chat_id={chat_id}: {text}")
-        request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
-        bot = telegram.Bot(token=token, request=request_config)
+        print(f"[Async ✅] Sending to {chat_id}: {text}")
         await bot.send_message(chat_id=chat_id, text=text)
-        print(f"[Worker ✅] Message sent to {chat_id}")
     except Exception as e:
-        print(f"[Worker ❌] Failed to send message to {chat_id}: {e}")
+        print(f"[Async ❌] Failed to send to {chat_id}: {e}")
 
-# Sync wrapper for RQ
-def enqueue_send_message(token, chat_id, text):
-    print(f"[Enqueue] Task: send '{text}' to chat_id={chat_id}")
-    asyncio.run(send_message_async(token, chat_id, text))
-
-# Webhook route — uses secret path instead of bot token for better security
+# Webhook handler
 @app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
     try:
@@ -56,19 +42,23 @@ def respond():
         text = update.message.text or ""
         print(f"[Webhook] Received message from {chat_id}: {text}")
 
+        # Prepare response text
         if text == '/start':
-            queue.enqueue(enqueue_send_message, bot_token, chat_id, "Welcome! How can I help you?")
+            response_text = "Welcome! How can I help you?"
         elif text == '/word':
-            queue.enqueue(enqueue_send_message, bot_token, chat_id, "Please send me a word to define.")
+            response_text = "Please send me a word to define."
         else:
-            queue.enqueue(enqueue_send_message, bot_token, chat_id, f"You said: {text}")
+            response_text = f"You said: {text}"
+
+        # Run send message asynchronously
+        asyncio.create_task(send_message_async(chat_id, response_text))
 
         return 'ok', 200
     except Exception as e:
-        print("Error in respond():", e)
+        print("❌ Error in respond():", e)
         return 'ok', 200
 
-# Manual webhook setup route
+# Route to set webhook manually
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook_route():
     try:
@@ -89,5 +79,6 @@ def set_webhook_route():
 def index():
     return 'Bot is running!'
 
+# Run the Flask app
 if __name__ == '__main__':
     app.run(threaded=True)
