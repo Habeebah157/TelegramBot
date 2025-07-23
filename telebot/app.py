@@ -30,7 +30,6 @@ app = Flask(__name__)
 # Function to fetch medium difficulty words from Datamuse API
 def get_medium_words():
     try:
-        # Example: 5 to 7 letter words (adjust sp param for length)
         response = requests.get('https://api.datamuse.com/words?sp=??????&md=f&max=100', timeout=5)
         words = response.json()
 
@@ -44,11 +43,9 @@ def get_medium_words():
                             return 0
             return 0
 
-        # Filter words with medium frequency (adjust thresholds as needed)
-        medium_words = [w['word'] for w in words if 100 < get_freq(w) < 10000]
+        medium_words = [w['word'] for w in words if 700 < get_freq(w) < 10000]
 
         if not medium_words:
-            # fallback to a static list if API returns empty
             return ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
         return medium_words
     except Exception as e:
@@ -71,6 +68,26 @@ def get_definition(word):
     except Exception as e:
         print(f"Error fetching definition: {e}")
         return "Error fetching definition."
+
+# Function to fetch synonyms from Datamuse API
+def get_synonyms(word, max_results=5):
+    try:
+        response = requests.get(f'https://api.datamuse.com/words?rel_syn={word}&max={max_results}', timeout=5)
+        synonyms = response.json()
+        return [w['word'] for w in synonyms] if synonyms else []
+    except Exception as e:
+        print(f"Error fetching synonyms: {e}")
+        return []
+
+# Function to fetch antonyms from Datamuse API
+def get_antonyms(word, max_results=5):
+    try:
+        response = requests.get(f'https://api.datamuse.com/words?rel_ant={word}&max={max_results}', timeout=5)
+        antonyms = response.json()
+        return [w['word'] for w in antonyms] if antonyms else []
+    except Exception as e:
+        print(f"Error fetching antonyms: {e}")
+        return []
 
 # Async function to send messages
 async def send_message_async(chat_id, text):
@@ -99,11 +116,24 @@ def respond():
         if text == '/start':
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
         elif text == '/word':
-            # Get dynamic medium words list
             words_list = get_medium_words()
             random_word = random.choice(words_list)
             definition = get_definition(random_word)
-            reply = f"**{random_word.capitalize()}**:\n{definition}"
+            synonyms = get_synonyms(random_word)
+            antonyms = get_antonyms(random_word)
+
+            reply = f"**{random_word.capitalize()}**:\n{definition}\n\n"
+
+            if synonyms:
+                reply += f"*Synonyms:* {', '.join(synonyms)}\n"
+            else:
+                reply += "*Synonyms:* None found\n"
+
+            if antonyms:
+                reply += f"*Antonyms:* {', '.join(antonyms)}"
+            else:
+                reply += "*Antonyms:* None found"
+
             asyncio.run(send_message_async(chat_id, reply))
         else:
             asyncio.run(send_message_async(chat_id, f"You said: {text}"))
