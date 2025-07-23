@@ -28,9 +28,14 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 app = Flask(__name__)
 
 # Function to fetch medium difficulty words from Datamuse API
-def get_medium_words():
+import requests
+
+def get_medium_adjectives():
     try:
-        response = requests.get('https://api.datamuse.com/words?sp=??????&md=f&max=100', timeout=5)
+        # 'md=f' includes frequency, 'md=p' includes parts of speech
+        # 'rel_jjb' returns adjectives related to a noun; instead we want adjectives only,
+        # so use 'md=p' and filter 'adj' tags manually.
+        response = requests.get('https://api.datamuse.com/words?md=pf&max=100', timeout=5)
         words = response.json()
 
         def get_freq(word_obj):
@@ -43,14 +48,30 @@ def get_medium_words():
                             return 0
             return 0
 
-        medium_words = [w['word'] for w in words if 700 < get_freq(w) < 10000]
+        def is_adjective(word_obj):
+            # 'adj' tag means adjective
+            return 'tags' in word_obj and 'adj' in word_obj['tags']
 
-        if not medium_words:
-            return ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
-        return medium_words
+        medium_adjectives = [
+            w['word'] for w in words
+            if is_adjective(w) and 700 < get_freq(w) < 10000
+        ]
+
+        if not medium_adjectives:
+            # fallback list of medium adjectives
+            return [
+                "intermediate", "moderate", "subtle", "robust", "complex",
+                "steady", "dynamic", "vivid", "precise", "refined"
+            ]
+
+        return medium_adjectives
+
     except Exception as e:
-        print(f"Error fetching medium words: {e}")
-        return ["apple", "banana", "cat", "dog", "elephant", "flower", "guitar", "house"]
+        print(f"Error fetching medium adjectives: {e}")
+        return [
+            "intermediate", "moderate", "subtle", "robust", "complex",
+            "steady", "dynamic", "vivid", "precise", "refined"
+        ]
 
 # Function to fetch definition from Free Dictionary API
 def get_definition(word):
