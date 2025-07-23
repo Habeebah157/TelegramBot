@@ -93,6 +93,21 @@ def get_example_sentence(word):
         print(f"Error fetching example sentence: {e}")
         return None
 
+def get_pronunciation(word):
+    try:
+        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        if isinstance(data, list) and len(data) > 0:
+            phonetics = data[0].get("phonetics", [])
+            for entry in phonetics:
+                if "text" in entry:
+                    return entry["text"]
+        return None
+    except Exception as e:
+        print(f"Error fetching pronunciation: {e}")
+        return None
+
 def get_synonyms(word, max_results=5):
     try:
         response = requests.get(f'https://api.datamuse.com/words?rel_syn={word}&max={max_results}', timeout=5)
@@ -140,13 +155,19 @@ def respond():
             words_list = get_medium_adjectives()
             random_word = random.choice(words_list)
             definition = get_definition(random_word)
-            example_sentence = get_example_sentence(random_word)  # NEW
+            pronunciation = get_pronunciation(random_word)
+            example_sentence = get_example_sentence(random_word)
             synonyms = get_synonyms(random_word)
             antonyms = get_antonyms(random_word)
 
-            reply = f"**{random_word.capitalize()}**:\n{definition}\n\n"
+            reply = f"**{random_word.capitalize()}**"
 
-            if example_sentence:  # NEW
+            if pronunciation:
+                reply += f" _({pronunciation})_"
+
+            reply += f":\n{definition}\n\n"
+
+            if example_sentence:
                 reply += f"_Example:_ {example_sentence}\n\n"
 
             if synonyms:
