@@ -9,25 +9,19 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 import nest_asyncio
 
-# Patch asyncio for nested loop support
 nest_asyncio.apply()
 
-# Load environment variables
 load_dotenv()
 bot_token = os.environ["BOT_TOKEN"]
 URL = os.environ["URL"]
 webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")
 
-print("Loaded BOT_TOKEN:", bot_token)
-
-# Configure Telegram Bot with HTTPX
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
 bot = telegram.Bot(token=bot_token, request=request_config)
 
-# Flask app
+
 app = Flask(__name__)
 
-# Function to fetch medium difficulty words from Datamuse API
 import requests
 
 def get_medium_adjectives():
@@ -137,7 +131,7 @@ def respond():
         if text == '/start':
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
         elif text == '/word':
-            words_list = get_medium_words()
+            words_list = get_medium_adjectives()
             random_word = random.choice(words_list)
             definition = get_definition(random_word)
             synonyms = get_synonyms(random_word)
