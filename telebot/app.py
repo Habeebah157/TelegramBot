@@ -21,37 +21,36 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 app = Flask(__name__)
 
-def get_medium_adjectives():
+import random
+import string
+import requests
+
+def get_low_freq_random_words(n=10, freq_threshold=500):
+    words = []
     try:
-        response = requests.get('https://api.datamuse.com/words?sp=a*&md=pf&max=1000', timeout=5)
-        words = response.json()
-        print("Fetched words from API:", len(words))
-
-        def get_freq(word_obj):
-            if 'tags' in word_obj:
-                for tag in word_obj['tags']:
-                    if tag.startswith('f:'):
-                        try:
-                            return float(tag[2:])
-                        except ValueError:
-                            return 0
-            return 0
-
-        def is_adjective(word_obj):
-            return 'tags' in word_obj and 'adj' in word_obj['tags']
-
-        medium_adjectives = [
-            w['word'] for w in words
-            if is_adjective(w) and 700 < get_freq(w) < 10000
-        ]
-
-        if not medium_adjectives:
-            return [
-                "intermediate", "moderate", "subtle", "robust", "complex",
-                "steady", "dynamic", "vivid", "precise", "refined"
+        for _ in range(n):
+            letter = random.choice(string.ascii_lowercase)
+            response = requests.get(f'https://api.datamuse.com/words?sp={letter}*&md=f&max=1000', timeout=5)
+            data = response.json()
+            # Filter words with frequency < threshold
+            filtered = [
+                w['word'] for w in data
+                if 'tags' in w
+                for tag in w['tags']
+                if tag.startswith('f:') and float(tag[2:]) < freq_threshold
             ]
+            if filtered:
+                words.append(random.choice(filtered))
+            else:
+                # fallback common words if none found
+                words.append(random.choice([
+                    "arcane", "obscure", "esoteric", "rare", "uncommon"
+                ]))
+        return words
+    except Exception as e:
+        print(f"Error fetching low frequency words: {e}")
+        return ["arcane", "obscure", "esoteric"]
 
-        return medium_adjectives
 
     except Exception as e:
         print(f"Error fetching medium adjectives: {e}")
@@ -153,7 +152,7 @@ def respond():
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
 
         elif text == '/word':
-            words_list = get_medium_adjectives()
+            words_list = get_low_freq_random_words()
             random_word = random.choice(words_list)
             definition = get_definition(random_word)
             pronunciation = get_pronunciation(random_word)
