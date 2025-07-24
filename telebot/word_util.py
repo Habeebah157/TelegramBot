@@ -5,6 +5,7 @@ def get_medium_adjectives():
     try:
         response = requests.get('https://api.datamuse.com/words?sp=*&md=pf&max=1000', timeout=5)
         words = response.json()
+        print("Fetched words from API:", len(words))
 
         def get_freq(word_obj):
             if 'tags' in word_obj:
