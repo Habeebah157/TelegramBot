@@ -1,7 +1,10 @@
 import os
 import asyncio
 import random
+import string
 import requests
+import urllib.parse
+
 from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
@@ -9,9 +12,9 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 import nest_asyncio
 
-nest_asyncio.apply()  # Allows running asyncio tasks inside running event loops without errors
-
+nest_asyncio.apply()
 load_dotenv()
+
 bot_token = os.environ["BOT_TOKEN"]
 URL = os.environ["URL"]
 webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")
@@ -21,10 +24,6 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 app = Flask(__name__)
 
-import random
-import string
-import requests
-
 def get_low_freq_random_words(n=10, freq_threshold=500):
     words = []
     try:
@@ -32,7 +31,6 @@ def get_low_freq_random_words(n=10, freq_threshold=500):
             letter = random.choice(string.ascii_lowercase)
             response = requests.get(f'https://api.datamuse.com/words?sp={letter}*&md=f&max=1000', timeout=5)
             data = response.json()
-            # Filter words with frequency < threshold
             filtered = [
                 w['word'] for w in data
                 if 'tags' in w
@@ -42,22 +40,11 @@ def get_low_freq_random_words(n=10, freq_threshold=500):
             if filtered:
                 words.append(random.choice(filtered))
             else:
-                # fallback common words if none found
-                words.append(random.choice([
-                    "arcane", "obscure", "esoteric", "rare", "uncommon"
-                ]))
+                words.append(random.choice(["arcane", "obscure", "esoteric", "rare", "uncommon"]))
         return words
     except Exception as e:
         print(f"Error fetching low frequency words: {e}")
         return ["arcane", "obscure", "esoteric"]
-
-
-    except Exception as e:
-        print(f"Error fetching medium adjectives: {e}")
-        return [
-            "intermediate", "moderate", "subtle", "robust", "complex",
-            "steady", "dynamic", "vivid", "precise", "refined"
-        ]
 
 def get_definition(word):
     try:
@@ -126,13 +113,27 @@ def get_antonyms(word, max_results=5):
         print(f"Error fetching antonyms: {e}")
         return []
 
+async def get_audio_pronunciation(word, lang='en'):
+    base_url = "https://translate.google.com/translate_tts"
+    params = {
+        "ie": "UTF-8",
+        "q": word,
+        "tl": lang,
+        "client": "tw-ob"
+    }
+    return f"{base_url}?{urllib.parse.urlencode(params)}"
+
 async def send_message_async(chat_id, text):
     try:
-        print(f"[Worker] Sending message to {chat_id}: {text}")
         await bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.constants.ParseMode.MARKDOWN)
-        print(f"[Worker ✅] Message sent to {chat_id}")
     except Exception as e:
-        print(f"[Worker ❌] Failed to send message to {chat_id}: {e}")
+        print(f"[❌] Failed to send message: {e}")
+
+async def send_voice_async(chat_id, voice_url):
+    try:
+        await bot.send_voice(chat_id=chat_id, voice=voice_url)
+    except Exception as e:
+        print(f"[❌] Failed to send voice: {e}")
 
 @app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
@@ -141,12 +142,10 @@ def respond():
         update = telegram.Update.de_json(update_json, bot)
 
         if not update.message:
-            print("[Webhook] No message in update.")
             return 'ok', 200
 
         chat_id = update.message.chat.id
         text = update.message.text or ""
-        print(f"[Webhook] Received message from {chat_id}: {text}")
 
         if text == '/start':
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
@@ -159,28 +158,22 @@ def respond():
             example_sentence = get_example_sentence(random_word)
             synonyms = get_synonyms(random_word)
             antonyms = get_antonyms(random_word)
+            audio_url = asyncio.run(get_audio_pronunciation(random_word))
 
             reply = f"**{random_word.capitalize()}**"
-
             if pronunciation:
                 reply += f" _({pronunciation})_"
-
             reply += f":\n{definition}\n\n"
 
             if example_sentence:
                 reply += f"_Example:_ {example_sentence}\n\n"
 
-            if synonyms:
-                reply += f"*Synonyms:* {', '.join(synonyms)}\n"
-            else:
-                reply += "*Synonyms:* None found\n"
-
-            if antonyms:
-                reply += f"*Antonyms:* {', '.join(antonyms)}"
-            else:
-                reply += "*Antonyms:* None found"
+            reply += f"*Synonyms:* {', '.join(synonyms) if synonyms else 'None'}\n"
+            reply += f"*Antonyms:* {', '.join(antonyms) if antonyms else 'None'}\n"
+            reply += f"\n[🔊 Listen to pronunciation]({audio_url})"
 
             asyncio.run(send_message_async(chat_id, reply))
+            asyncio.run(send_voice_async(chat_id, audio_url))
 
         else:
             asyncio.run(send_message_async(chat_id, f"You said: {text}"))
@@ -195,13 +188,10 @@ def respond():
 def set_webhook_route():
     try:
         webhook_url = urljoin(URL.rstrip('/') + '/', webhook_secret)
-        print(f"Setting webhook to: {webhook_url}")
-
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         result = loop.run_until_complete(bot.set_webhook(webhook_url))
         loop.close()
-
         return f"Webhook set: {result}"
     except Exception as e:
         return f"Error setting webhook: {e}"
