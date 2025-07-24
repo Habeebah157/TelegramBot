@@ -23,7 +23,7 @@ app = Flask(__name__)
 
 def get_medium_adjectives():
     try:
-        response = requests.get('https://api.datamuse.com/words?md=pf&max=100', timeout=5)
+        response = requests.get('https://api.datamuse.com/words?sp=*&md=pf&max=1000', timeout=5)
         words = response.json()
 
         def get_freq(word_obj):
