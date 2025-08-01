@@ -1,28 +1,69 @@
 import os
-import asyncio
 import random
 import string
-import requests
 import urllib.parse
-
+import re
+import requests
+import asyncio
+import google.generativeai as genai
 from flask import Flask, request
 import telegram
 from telegram.request import HTTPXRequest
 from urllib.parse import urljoin
-from dotenv import load_dotenv
 import nest_asyncio
+from dotenv import load_dotenv
+import aiohttp
 
-nest_asyncio.apply()
+# Load environment variables once at the top
 load_dotenv()
 
-bot_token = os.environ["BOT_TOKEN"]
-URL = os.environ["URL"]
-webhook_secret = os.environ.get("WEBHOOK_SECRET", "supersecret")
+# Apply nest_asyncio to allow nested event loops inside Flask
+nest_asyncio.apply()
 
+# Configure Gemini API with your key from .env
+genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+
+# Grab environment variables, with basic checks
+bot_token = os.getenv("BOT_TOKEN")
+if not bot_token:
+    raise RuntimeError("BOT_TOKEN not set in environment variables")
+
+URL = os.getenv("URL")
+if not URL:
+    raise RuntimeError("URL not set in environment variables")
+
+webhook_secret = os.getenv("WEBHOOK_SECRET", "supersecret")
+
+# Telegram bot setup with HTTPXRequest config
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
 bot = telegram.Bot(token=bot_token, request=request_config)
 
 app = Flask(__name__)
+
+def escape_markdown(text: str) -> str:
+    if not text:
+        return ""
+    escape_chars = r"_*[]()~`>#+-=|{}.!|"
+    return re.sub(rf"([{re.escape(escape_chars)}])", r"\\\1", text)
+
+async def generate_with_gemini(prompt_text):
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")  # or "gemini-pro"
+        response = await asyncio.to_thread(model.generate_content, prompt_text)
+
+        if response.candidates:
+            candidate = response.candidates[0]
+            if candidate.content and candidate.content.parts and hasattr(candidate.content.parts[0], 'text'):
+                return candidate.content.parts[0].text
+            else:
+                return "No text content could be extracted from the model's response."
+        else:
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                print(f"Prompt blocked: {response.prompt_feedback.block_reason}")
+            return "No content could be generated for this prompt."
+    except Exception as e:
+        print(f"Error during content generation: {e}")
+        return f"Error: {e}"
 
 def get_low_freq_random_words(n=10, freq_threshold=500):
     words = []
@@ -46,21 +87,36 @@ def get_low_freq_random_words(n=10, freq_threshold=500):
         print(f"Error fetching low frequency words: {e}")
         return ["arcane", "obscure", "esoteric"]
 
-def get_definition(word):
+async def get_definition(word):
     try:
-        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        if isinstance(data, list) and len(data) > 0:
-            meanings = data[0].get("meanings", [])
-            if meanings:
-                definitions = meanings[0].get("definitions", [])
-                if definitions:
-                    return definitions[0].get("definition", "No definition found.")
-        return "Sorry, no definition found."
+        def fetch_definition():
+            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+            response = requests.get(url, timeout=5)
+            return response.json()
+
+        data = await asyncio.to_thread(fetch_definition)
+
+        all_definitions = []
+
+        if isinstance(data, list) and data:
+            for meaning in data[0].get("meanings", []):
+                part_of_speech = meaning.get("partOfSpeech", "")
+                for definition in meaning.get("definitions", []):
+                    def_text = definition.get("definition", "No definition found.")
+                    full_def = f"{part_of_speech}: {def_text}" if part_of_speech else def_text
+                    all_definitions.append(full_def)
+
+        if all_definitions:
+            return all_definitions
+        else:
+            # Fallback to AI generation
+            prompt = f"Write a simple definition for the word '{word}'."
+            generated_text = await generate_with_gemini(prompt)
+            return [generated_text]
+
     except Exception as e:
         print(f"Error fetching definition: {e}")
-        return "Error fetching definition."
+        return ["Error fetching definition."]
 
 def get_example_sentence(word):
     try:
@@ -75,7 +131,7 @@ def get_example_sentence(word):
                     example = definition.get("example")
                     if example:
                         return example
-        return None
+        return generate_with_gemini(f"Provide an example sentence for the word '{word}'.")
     except Exception as e:
         print(f"Error fetching example sentence: {e}")
         return None
@@ -125,7 +181,8 @@ async def get_audio_pronunciation(word, lang='en'):
 
 async def send_message_async(chat_id, text):
     try:
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.constants.ParseMode.MARKDOWN)
+        await bot.send_message(chat_id=chat_id, text=text.encode('utf-16', 'surrogatepass').decode('utf-16'), parse_mode='HTML')
+
     except Exception as e:
         print(f"[❌] Failed to send message: {e}")
 
@@ -134,6 +191,50 @@ async def send_voice_async(chat_id, voice_url):
         await bot.send_voice(chat_id=chat_id, voice=voice_url)
     except Exception as e:
         print(f"[❌] Failed to send voice: {e}")
+
+async def part_of_speech_async(word):
+    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=5) as response:
+                data = await response.json()
+
+                if isinstance(data, list) and len(data) > 0:
+                    meanings = data[0].get("meanings", [])
+
+                    if meanings:
+                        part = meanings[0].get("partOfSpeech", "unknown")
+                        return part
+
+        return await generate_with_gemini(f"Provide the part of speech for the word  '{word}' just in one word please.")
+    except Exception as e:
+        print(f"Error fetching part of speech: {e}")
+        return "unknown"
+
+async def get_random_cute_image_url():
+    try:
+        access_key = os.environ.get("UNSPLASH_ACCESS_KEY")
+        query = "cute pastel illustration silly"
+        url = f"https://api.unsplash.com/photos/random?query={urllib.parse.quote(query)}&client_id={access_key}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        return data['urls']['regular']
+    except Exception as e:
+        print(f"Error fetching image: {e}")
+        return None
+
+def get_etymology(word):
+    try:
+        api_key = os.environ["WORDNIK_API_KEY"]
+        url = f"https://api.wordnik.com/v4/word.json/{word}/etymologies?useCanonical=true&limit=1&api_key={api_key}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        if isinstance(data, list) and data:
+            return data[0]
+        return "No etymology found."
+    except Exception as e:
+        print(f"Error fetching etymology: {e}")
+        return "Error fetching etymology."
 
 @app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
@@ -151,32 +252,65 @@ def respond():
             asyncio.run(send_message_async(chat_id, "Welcome! How can I help you?"))
 
         elif text == '/word':
-            words_list = get_low_freq_random_words()
-            random_word = random.choice(words_list)
-            definition = get_definition(random_word)
-            pronunciation = get_pronunciation(random_word)
-            example_sentence = get_example_sentence(random_word)
-            synonyms = get_synonyms(random_word)
-            antonyms = get_antonyms(random_word)
-            audio_url = asyncio.run(get_audio_pronunciation(random_word))
+            async def handle_word():
+                words_list = get_low_freq_random_words()
+                random_word = random.choice(words_list)
+                definition = await get_definition(random_word)
+                pronunciation = get_pronunciation(random_word)
+                example_sentence = get_example_sentence(random_word)
+                synonyms = get_synonyms(random_word)
+                antonyms = get_antonyms(random_word)
+                audio_url = await get_audio_pronunciation(random_word)
+                part_of_speech = await part_of_speech_async(random_word)
+                image_url = await get_random_cute_image_url()
+                etymology = get_etymology(random_word)
 
-            reply = f"**{random_word.capitalize()}**"
-            if pronunciation:
-                reply += f" _({pronunciation})_"
-            reply += f":\n{definition}\n\n"
+                prompt = f"Write a funny visual Haiku about the word '{random_word}'. Keep it short and witty."
+                haiku = await generate_with_gemini(prompt)
 
-            if example_sentence:
-                reply += f"_Example:_ {example_sentence}\n\n"
+                definition_text = "\n".join(definition)
+                definition_text = escape_markdown(definition_text)
 
-            reply += f"*Synonyms:* {', '.join(synonyms) if synonyms else 'None'}\n"
-            reply += f"*Antonyms:* {', '.join(antonyms) if antonyms else 'None'}\n"
-            reply += f"\n[🔊 Listen to pronunciation]({audio_url})"
+                example_sentence = escape_markdown(example_sentence) if example_sentence else None
+                part_of_speech = escape_markdown(part_of_speech)
+                etymology = escape_markdown(etymology)
 
-            asyncio.run(send_message_async(chat_id, reply))
-            asyncio.run(send_voice_async(chat_id, audio_url))
+                synonyms_escaped = [escape_markdown(s) for s in synonyms]
+                antonyms_escaped = [escape_markdown(a) for a in antonyms]
+
+                reply = f"<b>{random_word.capitalize()}</b>"
+                if pronunciation:
+                    reply += f" <i>({escape_markdown(pronunciation)})</i>"
+                definition_text = "\n".join(definition)
+                reply += f":\n{definition_text}\n\n"
+
+
+                if example_sentence:
+                    reply += f"<i>Example:</i> {example_sentence}\n\n"
+                reply += f"<b>Part of Speech:</b> {part_of_speech}\n"
+                reply += f"<b>Synonyms:</b> {', '.join(synonyms_escaped) if synonyms else 'None'}\n"
+                reply += f"<b>Antonyms:</b> {', '.join(antonyms_escaped) if antonyms else 'None'}\n"
+                reply += f"\n🔊 <a href='{audio_url}'>Listen to pronunciation</a>"
+                reply += f"\n<b>Etymology:</b> {etymology}\n"
+
+                if haiku and haiku.strip():
+                    haiku_escaped = escape_markdown(haiku)
+                    reply += f"\n📝 <b>Haiku:</b>\n<pre>{haiku_escaped}</pre>\n"
+
+                if image_url:
+                    reply += f"\n\n🖼️ <b>Visual Vibe:</b> <a href='{image_url}'>View image</a>"
+
+                await send_message_async(chat_id, reply)
+                await send_voice_async(chat_id, audio_url)
+
+            asyncio.run(handle_word())
 
         else:
-            asyncio.run(send_message_async(chat_id, f"You said: {text}"))
+            async def handle_other():
+                escaped_text = escape_markdown(text)
+                await send_message_async(chat_id, f"You said: {escaped_text}")
+
+            asyncio.run(handle_other())
 
         return 'ok', 200
 
@@ -188,10 +322,7 @@ def respond():
 def set_webhook_route():
     try:
         webhook_url = urljoin(URL.rstrip('/') + '/', webhook_secret)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(bot.set_webhook(webhook_url))
-        loop.close()
+        result = asyncio.run(bot.set_webhook(webhook_url))
         return f"Webhook set: {result}"
     except Exception as e:
         return f"Error setting webhook: {e}"

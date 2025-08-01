@@ -1,3 +1,4 @@
 telebot/credentials.py
 botenv/
 *.env
+NOTES.md

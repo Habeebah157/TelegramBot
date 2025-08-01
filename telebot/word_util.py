@@ -1,107 +1,77 @@
-import requests
+import asyncio
+import google.generativeai as genai
+import re
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])  # Make sure to add this to your .env file
+
+
 import random
 
-def get_medium_adjectives():
+async def generate_with_gemini(prompt_text):
     try:
-        response = requests.get('https://api.datamuse.com/words?sp=*&md=pf&max=1000', timeout=5)
-        words = response.json()
-        print("Fetched words from API:", len(words))
+        # Use a more standard model name - adjust based on what's available to you
+        model = genai.GenerativeModel("gemini-1.5-flash")  # or "gemini-pro"
+        
+        response = await asyncio.to_thread(model.generate_content, prompt_text)
 
-        def get_freq(word_obj):
-            if 'tags' in word_obj:
-                for tag in word_obj['tags']:
-                    if tag.startswith('f:'):
-                        try:
-                            return float(tag[2:])
-                        except ValueError:
-                            return 0
-            return 0
+        # --- DEBUGGING OUTPUT ---
+        print("\n--- Gemini Response Debug ---")
+        print(f"Prompt sent: '{prompt_text}'")
+        print(f"Response object type: {type(response)}")
+        # --- END DEBUGGING OUTPUT ---
 
-        def is_adjective(word_obj):
-            return 'tags' in word_obj and 'adj' in word_obj['tags']
+        if response.candidates:
+            print("these are the candidates", response.candidates)
+            candidate = response.candidates[0]
+            # --- DEBUGGING OUTPUT ---
+            print(f"Candidate finish reason: {candidate.finish_reason}")
+            print(f"Candidate content object (full dump): {candidate.content}")
+            # --- END DEBUGGING OUTPUT ---
 
-        medium_adjectives = [
-            w['word'] for w in words
-            if is_adjective(w) and 700 < get_freq(w) < 10000
-        ]
+            if candidate.content and candidate.content.parts and hasattr(candidate.content.parts[0], 'text'):
+                generated_text = candidate.content.parts[0].text
+                print(f"Successfully extracted text content (first 100 chars): '{generated_text[:100]}...'")
+                return generated_text
+            else:
+                print("Error: Candidate content structure is not as expected (missing parts or text in first part).")
+                return "No text content could be extracted from the model's response."
+        else:
+            print("No candidates returned in the response.")
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                print(f"Prompt blocked due to: {response.prompt_feedback.block_reason}")
+                print(f"Safety ratings: {response.prompt_feedback.safety_ratings}")
+            return "No content could be generated for this prompt (blocked or empty response)."
 
-        if not medium_adjectives:
-            return default_adjectives()
-
-        return medium_adjectives
     except Exception as e:
-        print(f"Error fetching adjectives: {e}")
-        return default_adjectives()
+        print(f"An error occurred during content generation: {e}")
+        return f"An error occurred: {e}"
 
-def default_adjectives():
-    return [
-        "intermediate", "moderate", "subtle", "robust", "complex",
-        "steady", "dynamic", "vivid", "precise", "refined"
-    ]
+async def escape_markdown(text: str) -> str:
+    if not text:
+        return ""
+    # MarkdownV2 special characters to escape
+    escape_chars = r"_*[]()~`>#+-=|{}.!"
+    return re.sub(rf"([{re.escape(escape_chars)}])", r"\\\1", text)
 
-def get_definition(word):
+def get_low_freq_random_words(n=10, freq_threshold=500):
+    words = []
     try:
-        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        if isinstance(data, list) and data:
-            meanings = data[0].get("meanings", [])
-            if meanings:
-                definitions = meanings[0].get("definitions", [])
-                if definitions:
-                    return definitions[0].get("definition", "No definition found.")
-        return "Sorry, no definition found."
+        for _ in range(n):
+            letter = random.choice(string.ascii_lowercase)
+            response = requests.get(f'https://api.datamuse.com/words?sp={letter}*&md=f&max=1000', timeout=5)
+            data = response.json()
+            filtered = [
+                w['word'] for w in data
+                if 'tags' in w
+                for tag in w['tags']
+                if tag.startswith('f:') and float(tag[2:]) < freq_threshold
+            ]
+            if filtered:
+                words.append(random.choice(filtered))
+            else:
+                words.append(random.choice(["arcane", "obscure", "esoteric", "rare", "uncommon"]))
+        return words
     except Exception as e:
-        print(f"Error fetching definition: {e}")
-        return "Error fetching definition."
+        print(f"Error fetching low frequency words: {e}")
+        return ["arcane", "obscure", "esoteric"]
 
-def get_example_sentence(word):
-    try:
-        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        if isinstance(data, list) and data:
-            meanings = data[0].get("meanings", [])
-            for meaning in meanings:
-                definitions = meaning.get("definitions", [])
-                for definition in definitions:
-                    example = definition.get("example")
-                    if example:
-                        return example
-        return None
-    except Exception as e:
-        print(f"Error fetching example sentence: {e}")
-        return None
 
-def get_pronunciation(word):
-    try:
-        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        if isinstance(data, list) and data:
-            phonetics = data[0].get("phonetics", [])
-            for entry in phonetics:
-                if "text" in entry:
-                    return entry["text"]
-        return None
-    except Exception as e:
-        print(f"Error fetching pronunciation: {e}")
-        return None
-
-def get_synonyms(word, max_results=5):
-    try:
-        response = requests.get(f'https://api.datamuse.com/words?rel_syn={word}&max={max_results}', timeout=5)
-        synonyms = response.json()
-        return [w['word'] for w in synonyms] if synonyms else []
-    except Exception as e:
-        print(f"Error fetching synonyms: {e}")
-        return []
-
-def get_antonyms(word, max_results=5):
-    try:
-        response = requests.get(f'https://api.datamuse.com/words?rel_ant={word}&max={max_results}', timeout=5)
-        antonyms = response.json()
-        return [w['word'] for w in antonyms] if antonyms else []
-    except Exception as e:
-        print(f"Error fetching antonyms: {e}")
-        return []
