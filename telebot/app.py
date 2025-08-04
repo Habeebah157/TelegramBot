@@ -14,6 +14,7 @@ import nest_asyncio
 from dotenv import load_dotenv
 import aiohttp
 
+
 # Load environment variables once at the top
 load_dotenv()
 
@@ -33,6 +34,8 @@ if not URL:
     raise RuntimeError("URL not set in environment variables")
 
 webhook_secret = os.getenv("WEBHOOK_SECRET", "supersecret")
+API_KEY = os.getenv("WORDNIK_API_KEY")
+print(API_KEY)
 
 # Telegram bot setup with HTTPXRequest config
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
@@ -56,37 +59,40 @@ async def generate_with_gemini(prompt_text):
             if candidate.content and candidate.content.parts and hasattr(candidate.content.parts[0], 'text'):
                 return candidate.content.parts[0].text
             else:
-                return "No text content could be extracted from the model's response."
+                return []
         else:
             if response.prompt_feedback and response.prompt_feedback.block_reason:
                 print(f"Prompt blocked: {response.prompt_feedback.block_reason}")
-            return "No content could be generated for this prompt."
+            return []
     except Exception as e:
         print(f"Error during content generation: {e}")
-        return f"Error: {e}"
+        return []
 
-def get_low_freq_random_words(n=10, freq_threshold=500):
-    words = []
+async def get_common_random_word(min_corpus_count=50000):
     try:
-        for _ in range(n):
-            letter = random.choice(string.ascii_lowercase)
-            response = requests.get(f'https://api.datamuse.com/words?sp={letter}*&md=f&max=1000', timeout=5)
-            data = response.json()
-            filtered = [
-                w['word'] for w in data
-                if 'tags' in w
-                for tag in w['tags']
-                if tag.startswith('f:') and float(tag[2:]) < freq_threshold
-            ]
-            if filtered:
-                words.append(random.choice(filtered))
-            else:
-                words.append(random.choice(["arcane", "obscure", "esoteric", "rare", "uncommon"]))
-        return words
+        print("HELLO HERE")
+        async with aiohttp.ClientSession() as session:
+            params = {
+                "hasDictionaryDef": "true",
+                "minCorpusCount": min_corpus_count,
+                "api_key": API_KEY
+            }
+            async with session.get(
+                "https://api.wordnik.com/v4/words.json/randomWord",
+                params=params,
+                timeout=5
+            ) as response:
+                print(f"Status code: {response.status}")
+                if response.status != 200:
+                    text = await response.text()
+                    print(f"Failed request: {text}")
+                    return "error"
+                data = await response.json()
+                print(f"Response JSON: {data}")
+                return data.get("word", "unknown")
     except Exception as e:
-        print(f"Error fetching low frequency words: {e}")
-        return ["arcane", "obscure", "esoteric"]
-
+        print(f"Error fetching word: {e}")
+        return "error"
 async def get_definition(word):
     try:
         def fetch_definition():
@@ -118,7 +124,7 @@ async def get_definition(word):
         print(f"Error fetching definition: {e}")
         return ["Error fetching definition."]
 
-def get_example_sentence(word):
+async def get_example_sentence(word):
     try:
         url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
         response = requests.get(url, timeout=5)
@@ -131,7 +137,7 @@ def get_example_sentence(word):
                     example = definition.get("example")
                     if example:
                         return example
-        return generate_with_gemini(f"Provide an example sentence for the word '{word}'.")
+        return await generate_with_gemini(f"Provide an example sentence for the word '{word}'.")
     except Exception as e:
         print(f"Error fetching example sentence: {e}")
         return None
@@ -151,20 +157,40 @@ def get_pronunciation(word):
         print(f"Error fetching pronunciation: {e}")
         return None
 
-def get_synonyms(word, max_results=5):
+async def get_synonyms(word, max_results=5):
     try:
         response = requests.get(f'https://api.datamuse.com/words?rel_syn={word}&max={max_results}', timeout=5)
         synonyms = response.json()
-        return [w['word'] for w in synonyms] if synonyms else []
+        res = [w['word'] for w in synonyms] if synonyms else []
+
+        if res:
+            return res
+        else:
+            prompt = f"List a few concise synonyms of the word '{word}', separated by commas. Just the words, no explanations. if none, return []"
+            gemini_response = await generate_with_gemini(prompt)
+            print(f"Gemini response: {gemini_response}")
+            words = [w.strip() for w in gemini_response.split(",") if w.strip()]
+            return words
     except Exception as e:
         print(f"Error fetching synonyms: {e}")
         return []
 
-def get_antonyms(word, max_results=5):
+async def get_antonyms(word, max_results=5):
     try:
         response = requests.get(f'https://api.datamuse.com/words?rel_ant={word}&max={max_results}', timeout=5)
         antonyms = response.json()
-        return [w['word'] for w in antonyms] if antonyms else []
+        res = [w['word'] for w in antonyms] if antonyms else []
+
+        if res:
+            print(res)
+            return res
+        else:
+            prompt = f"List a few concise antonyms of the word '{word}', separated by commas. Just the words, no explanations. if none, return []"
+            gemini_response = await generate_with_gemini(prompt)
+            print(f"Gemini response: {gemini_response}")
+            words = [w.strip() for w in gemini_response.split(",") if w.strip()]
+            return words
+
     except Exception as e:
         print(f"Error fetching antonyms: {e}")
         return []
@@ -193,40 +219,53 @@ async def send_voice_async(chat_id, voice_url):
         print(f"[❌] Failed to send voice: {e}")
 
 async def part_of_speech_async(word):
-    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+    url = f"https://api.wordnik.com/v4/word.json/{word}/definitions"
+    params = {
+        "limit": 1,
+        "includeRelated": "false",
+        "useCanonical": "true",
+        "api_key": API_KEY
+    }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=5) as response:
+            async with session.get(url, params=params, timeout=5) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    print(f"Failed Wordnik part of speech fetch: {response.status} {text}")
+                    # fallback to Gemini
+                    return await generate_with_gemini(
+                        f"Provide the part of speech for the word '{word}' just in one word please."
+                    )
+
                 data = await response.json()
 
                 if isinstance(data, list) and len(data) > 0:
-                    meanings = data[0].get("meanings", [])
+                    pos = data[0].get("partOfSpeech")
+                    if pos:
+                        return pos
 
-                    if meanings:
-                        part = meanings[0].get("partOfSpeech", "unknown")
-                        return part
-
-        return await generate_with_gemini(f"Provide the part of speech for the word  '{word}' just in one word please.")
+        # fallback to Gemini if no data found
+        return await generate_with_gemini(
+            f"Provide the part of speech for the word '{word}' just in one word please."
+        )
     except Exception as e:
         print(f"Error fetching part of speech: {e}")
         return "unknown"
-
-async def get_random_cute_image_url():
-    try:
-        access_key = os.environ.get("UNSPLASH_ACCESS_KEY")
-        query = "cute pastel illustration silly"
-        url = f"https://api.unsplash.com/photos/random?query={urllib.parse.quote(query)}&client_id={access_key}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        return data['urls']['regular']
-    except Exception as e:
-        print(f"Error fetching image: {e}")
-        return None
+# async def get_random_cute_image_url():
+#     try:
+#         access_key = os.environ.get("UNSPLASH_ACCESS_KEY")
+#         query = "cute pastel illustration silly"
+#         url = f"https://api.unsplash.com/photos/random?query={urllib.parse.quote(query)}&client_id={access_key}"
+#         response = requests.get(url, timeout=5)
+#         data = response.json()
+#         return data['urls']['regular']
+#     except Exception as e:
+#         print(f"Error fetching image: {e}")
+#         return None
 
 def get_etymology(word):
     try:
-        api_key = os.environ["WORDNIK_API_KEY"]
-        url = f"https://api.wordnik.com/v4/word.json/{word}/etymologies?useCanonical=true&limit=1&api_key={api_key}"
+        url = f"https://api.wordnik.com/v4/word.json/{word}/etymologies?useCanonical=true&limit=1&api_key={API_KEY}"
         response = requests.get(url, timeout=5)
         data = response.json()
         if isinstance(data, list) and data:
@@ -235,6 +274,7 @@ def get_etymology(word):
     except Exception as e:
         print(f"Error fetching etymology: {e}")
         return "Error fetching etymology."
+
 
 @app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
@@ -253,19 +293,19 @@ def respond():
 
         elif text == '/word':
             async def handle_word():
-                words_list = get_low_freq_random_words()
-                random_word = random.choice(words_list)
-                definition = await get_definition(random_word)
-                pronunciation = get_pronunciation(random_word)
-                example_sentence = get_example_sentence(random_word)
-                synonyms = get_synonyms(random_word)
-                antonyms = get_antonyms(random_word)
-                audio_url = await get_audio_pronunciation(random_word)
-                part_of_speech = await part_of_speech_async(random_word)
-                image_url = await get_random_cute_image_url()
-                etymology = get_etymology(random_word)
+                words_list = await get_common_random_word()
+                # random_word = random.choice(words_list)
+                definition = await get_definition(words_list)
+                pronunciation = get_pronunciation(words_list)
+                example_sentence = await get_example_sentence(words_list)
+                synonyms = await get_synonyms(words_list)
+                antonyms = await get_antonyms(words_list)
+                audio_url = await get_audio_pronunciation(words_list)
+                part_of_speech = await part_of_speech_async(words_list)
+                # image_url = await get_random_cute_image_url()
+                etymology = get_etymology(words_list)
 
-                prompt = f"Write a funny visual Haiku about the word '{random_word}'. Keep it short and witty."
+                prompt = f"Write a funny visual Haiku about the word '{words_list}'. Keep it short and witty."
                 haiku = await generate_with_gemini(prompt)
 
                 definition_text = "\n".join(definition)
@@ -278,7 +318,7 @@ def respond():
                 synonyms_escaped = [escape_markdown(s) for s in synonyms]
                 antonyms_escaped = [escape_markdown(a) for a in antonyms]
 
-                reply = f"<b>{random_word.capitalize()}</b>"
+                reply = f"<b>{words_list.capitalize()}</b>"
                 if pronunciation:
                     reply += f" <i>({escape_markdown(pronunciation)})</i>"
                 definition_text = "\n".join(definition)
@@ -297,8 +337,8 @@ def respond():
                     haiku_escaped = escape_markdown(haiku)
                     reply += f"\n📝 <b>Haiku:</b>\n<pre>{haiku_escaped}</pre>\n"
 
-                if image_url:
-                    reply += f"\n\n🖼️ <b>Visual Vibe:</b> <a href='{image_url}'>View image</a>"
+                # if image_url:
+                #     reply += f"\n\n🖼️ <b>Visual Vibe:</b> <a href='{image_url}'>View image</a>"
 
                 await send_message_async(chat_id, reply)
                 await send_voice_async(chat_id, audio_url)
