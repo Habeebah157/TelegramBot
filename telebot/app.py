@@ -15,16 +15,10 @@ from dotenv import load_dotenv
 import aiohttp
 
 
-# Load environment variables once at the top
 load_dotenv()
-
-# Apply nest_asyncio to allow nested event loops inside Flask
 nest_asyncio.apply()
-
-# Configure Gemini API with your key from .env
 genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
 
-# Grab environment variables, with basic checks
 bot_token = os.getenv("BOT_TOKEN")
 if not bot_token:
     raise RuntimeError("BOT_TOKEN not set in environment variables")
@@ -37,62 +31,21 @@ webhook_secret = os.getenv("WEBHOOK_SECRET", "supersecret")
 API_KEY = os.getenv("WORDNIK_API_KEY")
 print(API_KEY)
 
-# Telegram bot setup with HTTPXRequest config
 request_config = HTTPXRequest(pool_timeout=10, read_timeout=15, write_timeout=15, connect_timeout=5)
 bot = telegram.Bot(token=bot_token, request=request_config)
 
 app = Flask(__name__)
 
-def escape_markdown(text: str) -> str:
-    if not text:
-        return ""
-    escape_chars = r"_*[]()~`>#+-=|{}.!|"
-    return re.sub(rf"([{re.escape(escape_chars)}])", r"\\\1", text)
+from word_util import (
+    escape_markdown,
+    get_fun_fact_from_wikipedia, 
+    get_common_random_word, 
+    generate_with_gemini
+)
 
-async def generate_with_gemini(prompt_text):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")  # or "gemini-pro"
-        response = await asyncio.to_thread(model.generate_content, prompt_text)
 
-        if response.candidates:
-            candidate = response.candidates[0]
-            if candidate.content and candidate.content.parts and hasattr(candidate.content.parts[0], 'text'):
-                return candidate.content.parts[0].text
-            else:
-                return []
-        else:
-            if response.prompt_feedback and response.prompt_feedback.block_reason:
-                print(f"Prompt blocked: {response.prompt_feedback.block_reason}")
-            return []
-    except Exception as e:
-        print(f"Error during content generation: {e}")
-        return []
 
-async def get_common_random_word(min_corpus_count=50000):
-    try:
-        print("HELLO HERE")
-        async with aiohttp.ClientSession() as session:
-            params = {
-                "hasDictionaryDef": "true",
-                "minCorpusCount": min_corpus_count,
-                "api_key": API_KEY
-            }
-            async with session.get(
-                "https://api.wordnik.com/v4/words.json/randomWord",
-                params=params,
-                timeout=5
-            ) as response:
-                print(f"Status code: {response.status}")
-                if response.status != 200:
-                    text = await response.text()
-                    print(f"Failed request: {text}")
-                    return "error"
-                data = await response.json()
-                print(f"Response JSON: {data}")
-                return data.get("word", "unknown")
-    except Exception as e:
-        print(f"Error fetching word: {e}")
-        return "error"
+
 async def get_definition(word):
     try:
         def fetch_definition():
@@ -244,24 +197,25 @@ async def part_of_speech_async(word):
                     if pos:
                         return pos
 
-        # fallback to Gemini if no data found
         return await generate_with_gemini(
             f"Provide the part of speech for the word '{word}' just in one word please."
         )
     except Exception as e:
         print(f"Error fetching part of speech: {e}")
         return "unknown"
-# async def get_random_cute_image_url():
-#     try:
-#         access_key = os.environ.get("UNSPLASH_ACCESS_KEY")
-#         query = "cute pastel illustration silly"
-#         url = f"https://api.unsplash.com/photos/random?query={urllib.parse.quote(query)}&client_id={access_key}"
-#         response = requests.get(url, timeout=5)
-#         data = response.json()
-#         return data['urls']['regular']
-#     except Exception as e:
-#         print(f"Error fetching image: {e}")
-#         return None
+async def get_image_from_wikipedia(word):
+    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{word}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                thumbnail = data.get("thumbnail", {})
+                image_url = thumbnail.get("source")
+                return image_url  # Might be None if not available
+            else:
+                print(f"Failed to get image from Wikipedia. Status: {response.status}")
+    return None
+
 
 def get_etymology(word):
     try:
@@ -304,8 +258,12 @@ def respond():
                 part_of_speech = await part_of_speech_async(words_list)
                 # image_url = await get_random_cute_image_url()
                 etymology = get_etymology(words_list)
+                wikiinfo = await get_fun_fact_from_wikipedia(words_list)
+                wiki_image = await get_image_from_wikipedia(words_list)
 
-                prompt = f"Write a funny visual Haiku about the word '{words_list}'. Keep it short and witty."
+                
+
+                prompt = f"Turn the list {words_list} into a short, clever mental model or schema that simplifies the concept. Make it witty and easy to understand. Make it short, not more than a 2 sentences. Use simple words please because this is for english learners"
                 haiku = await generate_with_gemini(prompt)
 
                 definition_text = "\n".join(definition)
@@ -318,11 +276,17 @@ def respond():
                 synonyms_escaped = [escape_markdown(s) for s in synonyms]
                 antonyms_escaped = [escape_markdown(a) for a in antonyms]
 
+
                 reply = f"<b>{words_list.capitalize()}</b>"
+                if wiki_image:
+                    reply += f"\n🖼️ <b>Wiki Image:</b> <a href='{wiki_image}'>View</a>"
+
                 if pronunciation:
                     reply += f" <i>({escape_markdown(pronunciation)})</i>"
                 definition_text = "\n".join(definition)
                 reply += f":\n{definition_text}\n\n"
+
+                
 
 
                 if example_sentence:
@@ -330,20 +294,24 @@ def respond():
                 reply += f"<b>Part of Speech:</b> {part_of_speech}\n"
                 reply += f"<b>Synonyms:</b> {', '.join(synonyms_escaped) if synonyms else 'None'}\n"
                 reply += f"<b>Antonyms:</b> {', '.join(antonyms_escaped) if antonyms else 'None'}\n"
-                reply += f"\n🔊 <a href='{audio_url}'>Listen to pronunciation</a>"
                 reply += f"\n<b>Etymology:</b> {etymology}\n"
 
                 if haiku and haiku.strip():
                     haiku_escaped = escape_markdown(haiku)
-                    reply += f"\n📝 <b>Haiku:</b>\n<pre>{haiku_escaped}</pre>\n"
+                    reply += f"\n📝 <b>Word Association:</b>\n<pre>{haiku_escaped}</pre>\n"
+                reply += f"\n<b>WikiInfo:</b> {wikiinfo}\n"
 
                 # if image_url:
                 #     reply += f"\n\n🖼️ <b>Visual Vibe:</b> <a href='{image_url}'>View image</a>"
+
+                #Image but from the wiki api
 
                 await send_message_async(chat_id, reply)
                 await send_voice_async(chat_id, audio_url)
 
             asyncio.run(handle_word())
+        elif text == '/quiz': 
+            asyncio.run(send_message_async(chat_id, "Ok, welcome to the quiz. I am excited to do this for you. "))
 
         else:
             async def handle_other():
