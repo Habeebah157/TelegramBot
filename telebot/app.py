@@ -117,9 +117,6 @@ def respond():
                     reply += f"\n📝 <b>Word Association:</b>\n<pre>{haiku_escaped}</pre>\n"
                 reply += f"\n<b>WikiInfo:</b> {wikiinfo}\n"
                 reply += f"\n[🔊 Listen to pronunciation]({audio_url})"
-                if audio_url:
-                    await bot.send_audio(chat_id=chat_id, audio=audio_url, caption="🔊 Listen to pronunciation")
-                    reply += f"\n[🔊 Listen to pronunciation]({audio_url})"
                 await bot.send_audio(chat_id=chat_id, audio=audio_url, caption="🔊 Listen to pronunciation")
 
                 asyncio.run(send_message_async(chat_id, reply))
