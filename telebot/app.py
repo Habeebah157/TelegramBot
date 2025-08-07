@@ -28,7 +28,7 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 app = Flask(__name__)
 
-from word_util import (
+from telebot.word_util import (
     escape_markdown,
     get_fun_fact_from_wikipedia, 
     get_common_random_word, 
@@ -44,7 +44,7 @@ from word_util import (
     part_of_speech_async,
     get_image_from_wikipedia, 
     get_etymology
-)
+) 
 
 @app.route(f'/{webhook_secret}', methods=['POST'])
 def respond():
