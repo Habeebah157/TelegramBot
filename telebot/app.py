@@ -120,7 +120,7 @@ def respond():
                 await bot.send_audio(chat_id=chat_id, audio=audio_url, caption="🔊 Listen to pronunciation")
 
                 asyncio.run(send_message_async(chat_id, reply))
-                asyncio.run(send_voice_async(chat_id, audio_url))
+                # asyncio.run(send_voice_async(chat_id, audio_url))
 
             asyncio.run(handle_word())
         elif text == '/quiz': 
