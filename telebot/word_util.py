@@ -140,7 +140,10 @@ async def get_definition(word):
                 part_of_speech = meaning.get("partOfSpeech", "")
                 for definition in meaning.get("definitions", []):
                     def_text = definition.get("definition", "No definition found.")
-                    full_def = f"{part_of_speech}: {def_text}" if part_of_speech else def_text
+                    if part_of_speech:
+                        full_def = f"• <b>{part_of_speech.upper()}</b>: {def_text}"
+                    else:
+                        full_def = def_text
                     all_definitions.append(full_def)
 
         if all_definitions:

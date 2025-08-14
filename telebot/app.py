@@ -28,7 +28,7 @@ bot = telegram.Bot(token=bot_token, request=request_config)
 
 app = Flask(__name__)
 
-from telebot.word_util import (
+from word_util import (
     escape_markdown,
     get_fun_fact_from_wikipedia, 
     get_common_random_word, 
@@ -82,8 +82,9 @@ def respond():
                 prompt = f"Turn the list {words_list} into a short, clever mental model or schema that simplifies the concept. Make it witty and easy to understand. Make it short, not more than a 2 sentences. Use simple words please because this is for english learners"
                 haiku = await generate_with_gemini(prompt)
 
-                definition_text = "\n".join(definition)
+                definition_text = "\n" + "\n".join(definition)
                 definition_text = escape_markdown(definition_text)
+
 
                 example_sentence = escape_markdown(example_sentence) if example_sentence else None
                 part_of_speech = escape_markdown(part_of_speech)
@@ -92,8 +93,8 @@ def respond():
                 synonyms_escaped = [escape_markdown(s) for s in synonyms]
                 antonyms_escaped = [escape_markdown(a) for a in antonyms]
 
-
-                reply = f"<b>{words_list.capitalize()}</b>"
+                print(words_list.capitalize())
+                reply = f"<b>{words_list.upper()}</b>\n"
                 if wiki_image:
                     reply += f"\n🖼️ <b>Wiki Image:</b> <a href='{wiki_image}'>View</a>"
 
